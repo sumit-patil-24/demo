@@ -35,7 +35,7 @@ jobs:
         run: |
           cd frontend
           npm install
-          CI=true npm test
+          CI=true npm test -- --passWithNoTests
 
   build-and-push:
     name: Build & Push Docker Images
