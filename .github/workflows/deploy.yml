@@ -73,23 +73,50 @@ jobs:
           context: ./nginx
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/localbizhub-proxy:latest
-
   deploy:
-    name: Deploy to EC2 Cloud Host
+    name: Deploy & Provision EC2 Host
     needs: build-and-push
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy via SSH
+      - name: Deploy and Provision via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd ~/localbizhub || git clone https://github.com/${{ github.repository }}.git ~/localbizhub
-            cd ~/localbizhub
-            git pull origin main
-            docker-compose pull
-            docker-compose up -d --remove-orphans
+            # 1. Install Docker & Docker Compose if not already installed
+            if ! command -v docker &> /dev/null; then
+              echo "Docker not found. Installing Docker..."
+              sudo apt-get update -y
+              sudo apt-get install -y curl apt-transport-https ca-certificates gnupg lsb-release
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apts/sources.list.d/docker.list > /dev/null
+              sudo apt-get update -y
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+              sudo usermod -aG docker $USER
+              sudo systemctl enable docker
+              sudo systemctl start docker
+            else
+              echo "Docker is already installed."
+            fi
+
+            # 2. Ensure Docker service is running
+            sudo systemctl start docker
+
+            # 3. Clone or update project code
+            if [ -d "$HOME/localbizhub" ]; then
+              cd ~/localbizhub
+              git pull origin main
+            else
+              git clone https://github.com/${{ github.repository }}.git ~/localbizhub
+              cd ~/localbizhub
+            fi
+
+            # 4. Pull latest built images and start application
+            docker compose pull
+            docker compose up -d --remove-orphans
+  
+  
